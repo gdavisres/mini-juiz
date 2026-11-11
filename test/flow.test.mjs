@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync } from 'node:fs';
+import { test } from 'node:test';
+
+test('a tarefa expirada é retomada e somente o dono atual pode concluir', async (t) => {
+  const socketPath = process.platform === 'win32' ? `\\\\.\\pipe\\minijuiz-${process.pid}` : join(tmpdir(), `minijuiz-${process.pid}.sock`);
+  const server = spawn(process.execPath, ['src/server.mjs'], {
+    env: { ...process.env, SOCKET_PATH: socketPath, DB_PATH: ':memory:', JUDGE_TOKEN: 'teste', LEASE_MS: '1200' },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  t.after(async () => {
+    if (server.exitCode === null && server.signalCode === null) {
+      const exited = once(server, 'exit');
+      server.kill();
+      await exited;
+    }
+    if (process.platform !== 'win32') rmSync(socketPath, { force: true });
+  });
+  await Promise.race([once(server.stdout, 'data'), once(server, 'exit').then(() => {
+    throw new Error('A API encerrou antes de aceitar conexões.');
+  })]);
+  const request = (path, body, token = 'teste') => new Promise((resolve, reject) => {
+    const req = httpRequest({ socketPath, path, method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }, async (res) => {
+      try {
+        const text = await Array.fromAsync(res);
+        resolve({ status: res.statusCode, json: () => JSON.parse(Buffer.concat(text).toString()) });
+      } catch (error) { reject(error); }
+    });
+    req.on('error', reject);
+    req.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+
+  assert.equal((await request('/')).status, 200);
+  assert.equal((await request('/internal/claim', { worker: 'worker-1' }, 'invalido')).status, 401);
+  const submitted = await request('/api/submissions', {
+    participant: 'Equipe A', problem: 'A', source: 'int main() {}',
+  });
+  assert.equal(submitted.status, 201);
+  const submission = await submitted.json();
+  assert.equal(submission.status, 'queued');
+
+  const [first, second] = await Promise.all(['worker-1', 'worker-2'].map(async (worker) => ({
+    worker, response: await request('/internal/claim', { worker }),
+  })));
+  assert.deepEqual([first.response.status, second.response.status].sort(), [200, 204]);
+  const owner = first.response.status === 200 ? first : second;
+  const standby = owner === first ? second : first;
+  const old = await owner.response.json();
+  assert.equal(old.id, submission.id);
+  assert.equal(old.attempts, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  const retry = await (await request('/internal/claim', { worker: standby.worker })).json();
+  assert.equal(retry.id, old.id);
+  assert.equal(retry.attempts, 2);
+  const finish = (job, status) => request(`/internal/jobs/${job.id}/finish`, { lease: job.lease, status });
+  assert.equal((await finish(old, 'wrong_answer')).status, 409);
+  assert.equal((await finish(retry, 'accepted')).status, 200);
+  assert.equal((await finish(retry, 'accepted')).status, 200);
+  const publicResult = await (await request(`/api/submissions/${old.id}`)).json();
+  assert.equal(publicResult.status, 'accepted');
+  assert.equal(publicResult.worker, standby.worker);
+  assert.equal('lease' in publicResult, false);
+  assert.equal('source' in publicResult, false);
+});

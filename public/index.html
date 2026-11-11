@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151c">
+  <title>Mini Juiz · Arena de Programação</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="Mini Juiz, início"><span class="brand-mark" aria-hidden="true">&gt;_</span> Mini Juiz</a>
+      <span class="connection" id="connection" role="status"><span class="dot"></span> Conectando</span>
+    </div>
+  </header>
+  <main>
+    <div class="hero">
+      <div><h1>Arena de Programação</h1><p>Resolva o problema e acompanhe a correção distribuída.</p></div>
+    </div>
+
+    <section class="metrics" aria-label="Resumo das submissões">
+      <div><span>Submissões</span><strong id="total">—</strong></div>
+      <div><span>Na fila</span><strong id="queued">—</strong></div>
+      <div><span>Em correção</span><strong id="running">—</strong></div>
+      <div><span>Aceitas</span><strong id="accepted">—</strong></div>
+    </section>
+
+    <div class="workspace">
+      <section class="panel problem" id="problema" aria-labelledby="problem-title">
+        <div class="panel-top"><span class="problem-letter" id="problem-letter">A</span><h2 id="problem-title">Carregando problema…</h2></div>
+        <div class="problem-body">
+          <p id="statement"></p>
+          <div class="limits" id="limits"></div>
+          <h3>Entrada</h3><p id="input"></p>
+          <h3>Saída</h3><p id="output"></p>
+          <h3>Exemplo</h3>
+          <div class="examples">
+            <div><span>Entrada</span><pre id="example-input"></pre></div>
+            <div><span>Saída</span><pre id="example-output"></pre></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel editor" aria-labelledby="editor-title">
+        <div class="panel-top editor-top"><h2 id="editor-title">Sua solução</h2><span class="language">C++17</span></div>
+        <form id="submission-form">
+          <label for="participant">Participante</label>
+          <input id="participant" name="participant" placeholder="Seu nome ou equipe" maxlength="40" required autocomplete="nickname">
+          <label class="sr-only" for="source">Código C++</label>
+          <textarea id="source" name="source" spellcheck="false" required placeholder="Cole ou escreva seu código C++ aqui"></textarea>
+          <div class="actions"><label class="upload" for="file">Abrir .cpp</label><input type="file" accept=".cpp,.cc,.cxx,text/plain" id="file" class="sr-only"><button type="submit" id="send" disabled>Enviar solução <span aria-hidden="true">↗</span></button></div>
+          <p id="message" class="message" role="status"></p>
+        </form>
+      </section>
+    </div>
+
+    <div class="activity">
+      <section class="panel" id="submissoes" aria-labelledby="history-title">
+        <div class="panel-top"><h2 id="history-title">Submissões recentes</h2></div>
+        <p class="empty" id="submissions-empty">Carregando submissões…</p>
+        <div class="table-wrap" id="table-wrap" hidden>
+          <table><thead><tr><th scope="col">Participante</th><th scope="col">Veredito</th><th scope="col">Worker</th><th scope="col">Tentativas</th><th scope="col">Hora</th></tr></thead><tbody id="submissions"></tbody></table>
+        </div>
+      </section>
+      <section class="panel" id="workers" aria-labelledby="workers-title">
+        <div class="panel-top"><h2 id="workers-title">Workers</h2></div>
+        <ul class="worker-list" id="worker-list"><li class="empty">Carregando workers…</li></ul>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

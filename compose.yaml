@@ -1,0 +1,14 @@
+name: mini-juiz
+
+services:
+  api:
+    build: .
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    environment:
+      JUDGE_TOKEN: ${JUDGE_TOKEN:-minijuiz-local}
+    volumes:
+      - submissions:/data
+
+volumes:
+  submissions:
