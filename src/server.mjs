@@ -2,9 +2,9 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomBytes } from 'node:crypto';
 import { createStore, verdicts } from './store.mjs';
-import { problem } from './problems.mjs';
+import { problem, problems, getProblem, validProgress } from './problems.mjs';
 
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -18,6 +18,8 @@ const auth = Buffer.from(`Bearer ${token}`);
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/app.css', ['app.css', 'text/css']],
   ['/app.js', ['app.js', 'text/javascript']],
+  ['/editor.js', ['editor.js', 'text/javascript']],
+  ['/editor-LICENSE.txt', ['editor-LICENSE.txt', 'text/plain']],
 ]);
 
 class HttpError extends Error {
@@ -50,7 +52,7 @@ async function body(request) {
 function submission(data) {
   const participant = typeof data.participant === 'string' ? data.participant.trim() : '';
   if (!participant || participant.length > 40) throw new HttpError(400, 'Informe um nome de até 40 caracteres.');
-  if (data.problem !== problem.id) throw new HttpError(400, 'Problema inválido.');
+  if (!getProblem(data.problem)) throw new HttpError(400, 'Problema inválido.');
   if (typeof data.source !== 'string' || !data.source.trim() || Buffer.byteLength(data.source) > 32768) {
     throw new HttpError(400, 'Envie código C++ com até 32 KiB.');
   }
@@ -72,7 +74,10 @@ async function workerRequest(request, response, path) {
   if (typeof data.lease !== 'string') throw new HttpError(400, 'Reserva inválida.');
   const [, id, operation] = job;
   if (operation === 'renew') {
-    if (!store.renew(id, data.lease)) throw new HttpError(409, 'A reserva expirou.');
+    const hasProgress = ['phase', 'testsCompleted', 'testsTotal'].some((field) => Object.hasOwn(data, field));
+    const current = store.get(id);
+    if (hasProgress && current && !validProgress(data, current.problem)) throw new HttpError(400, 'Progresso inválido.');
+    if (!store.renew(id, data.lease, hasProgress ? data : undefined)) throw new HttpError(409, 'A reserva expirou ou o progresso regrediu.');
     return send(response, 204);
   }
   if (!verdicts.includes(data.status)) throw new HttpError(400, 'Veredito inválido.');
@@ -87,15 +92,19 @@ async function handle(request, response) {
   if (path.startsWith('/internal/')) return workerRequest(request, response, path);
   if (method === 'GET' && assets.has(path)) {
     const [name, type] = assets.get(path);
-    const file = await readFile(new URL(`../public/${name}`, import.meta.url));
+    const nonce = randomBytes(18).toString('base64');
+    const asset = await readFile(new URL(`../public/${name}`, import.meta.url));
+    const file = path === '/' ? asset.toString('utf8').replace('__EDITOR_STYLE_NONCE__', nonce) : asset;
     response.writeHead(200, {
       'Content-Type': `${type}; charset=utf-8`,
-      'Content-Security-Policy': "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': `default-src 'self'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`,
+      'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
     });
     return response.end(file);
   }
   if (method === 'GET' && path === '/api/problem') return send(response, 200, problem);
+  if (method === 'GET' && path === '/api/problems') return send(response, 200, problems);
   if (method === 'GET' && path === '/api/dashboard') return send(response, 200, store.dashboard());
   if (method === 'POST' && path === '/api/submissions') {
     return send(response, 201, store.submit(submission(await body(request))));

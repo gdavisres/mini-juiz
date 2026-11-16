@@ -1,10 +1,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cases, problem } from './problems.mjs';
+import { getCases, getProblem } from './problems.mjs';
 
 export const runnerImage = process.env.RUNNER_IMAGE ?? 'minijuiz-runner:local';
 
-async function dockerRun(mode, input) {
+async function dockerRun(mode, input, problem) {
   const name = `minijuiz-${randomUUID()}`;
   const compiling = mode === 'compile';
   const memory = compiling ? '384m' : `${problem.memoryLimit}m`;
@@ -47,19 +47,26 @@ async function dockerRun(mode, input) {
 }
 
 const dockerRunner = {
-  compile: (source) => dockerRun('compile', source),
-  run: (binary, input) => dockerRun('run', Buffer.concat([Buffer.from(`${binary.length}\n`), binary, Buffer.from(input)])),
+  compile: (source, problem) => dockerRun('compile', source, problem),
+  run: (binary, input, problem) => dockerRun('run', Buffer.concat([Buffer.from(`${binary.length}\n`), binary, Buffer.from(input)]), problem),
 };
 
-export async function judge(source, runner = dockerRunner) {
+export async function judge(source, runner = dockerRunner, problemId = 'A', onProgress = async () => {}) {
   try {
-    const compiled = await runner.compile(source);
+    const problem = getProblem(problemId);
+    const cases = getCases(problemId);
+    if (!problem || !cases) return { status: 'judge_error' };
+    const report = (phase, testsCompleted) => onProgress({ phase, testsCompleted, testsTotal: cases.length });
+    await report('compiling', 0);
+    const compiled = await runner.compile(source, problem);
     if (compiled.code === 125 || compiled.code === 126 || compiled.code === 127) return { status: 'judge_error' };
     if (compiled.code !== 0) return { status: 'compile_error', detail: compiled.stderr?.toString('utf8').slice(0, 1600) };
     if (!compiled.stdout.length) return { status: 'judge_error' };
 
+    await report('testing', 0);
     for (const [index, test] of cases.entries()) {
-      const result = await runner.run(compiled.stdout, test.input);
+      const result = await runner.run(compiled.stdout, test.input, problem);
+      await report('testing', index + 1);
       const detail = `Caso ${index + 1} de ${cases.length}`;
       if (result.code === 125 || result.code === 126 || result.code === 127) return { status: 'judge_error' };
       if (result.code === 124 || result.code === 137) return { status: 'time_limit', detail };

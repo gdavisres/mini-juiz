@@ -38,6 +38,23 @@ test('a tarefa expirada é retomada e somente o dono atual pode concluir', async
   });
 
   assert.equal((await request('/')).status, 200);
+  const catalog = await request('/api/problems');
+  assert.equal(catalog.status, 200);
+  const problems = catalog.json();
+  assert.deepEqual(problems.map(({ id }) => id), ['A', 'B', 'C']);
+  for (const problem of problems) {
+    for (const field of ['title', 'statement', 'input', 'output', 'example', 'difficulty', 'topic']) assert.ok(problem[field]);
+    assert.equal('cases' in problem, false);
+    assert.equal('expected' in problem, false);
+  }
+  assert.equal((await request('/api/problem')).json().id, 'A');
+  for (const problem of ['B', 'C']) {
+    assert.equal((await request('/api/submissions', { participant: 'Equipe', problem, source: 'int main(){}' })).status, 201);
+    const job = (await request('/internal/claim', { worker: 'catalog-worker' })).json();
+    assert.equal(job.problem, problem);
+    assert.equal((await request(`/internal/jobs/${job.id}/finish`, { lease: job.lease, status: 'accepted' })).status, 200);
+  }
+  assert.equal((await request('/api/submissions', { participant: 'Equipe', problem: 'Z', source: 'int main(){}' })).status, 400);
   assert.equal((await request('/internal/claim', { worker: 'worker-1' }, 'invalido')).status, 401);
   const submitted = await request('/api/submissions', {
     participant: 'Equipe A', problem: 'A', source: 'int main() {}',
@@ -55,9 +72,19 @@ test('a tarefa expirada é retomada e somente o dono atual pode concluir', async
   const old = await owner.response.json();
   assert.equal(old.id, submission.id);
   assert.equal(old.attempts, 1);
+  const progress = { lease: old.lease, phase: 'testing', testsCompleted: 1, testsTotal: 3 };
+  assert.equal((await request(`/internal/jobs/${old.id}/renew`, progress, 'invalido')).status, 401);
+  assert.equal((await request(`/internal/jobs/${old.id}/renew`, progress)).status, 204);
+  assert.equal((await request(`/internal/jobs/${old.id}/renew`, { ...progress, testsTotal: 100 })).status, 400);
+  const active = (await request('/api/dashboard')).json().activeSubmissions.find(({ id }) => id === old.id);
+  assert.equal(active.phase, 'testing');
+  assert.equal(active.testsCompleted, 1);
+  assert.equal('lease' in active, false);
+  assert.equal('source' in active, false);
 
   await new Promise((resolve) => setTimeout(resolve, 1300));
   const retry = await (await request('/internal/claim', { worker: standby.worker })).json();
+  assert.equal((await request(`/internal/jobs/${old.id}/renew`, progress)).status, 409);
   assert.equal(retry.id, old.id);
   assert.equal(retry.attempts, 2);
   const finish = (job, status) => request(`/internal/jobs/${job.id}/finish`, { lease: job.lease, status });

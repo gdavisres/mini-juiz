@@ -32,7 +32,17 @@ async function processJob(job) {
   const renewal = renew();
   try {
     console.log(`${job.id} · tentativa ${job.attempts}`);
-    const result = await judge(job.source);
+    const result = await judge(job.source, undefined, job.problem, async (progress) => {
+      if (expired) throw new Error('A reserva expirou.');
+      try {
+        const response = await post(`${path}/renew`, { lease, ...progress });
+        if (response.status === 409) { expired = true; throw new Error('A reserva expirou.'); }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        if (expired) throw error;
+        console.error('Envio do progresso:', error.message);
+      }
+    });
     for (let attempt = 0; attempt < 3 && !expired; attempt += 1) {
       try {
         const response = await post(`${path}/finish`, { ...result, lease });

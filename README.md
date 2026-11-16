@@ -1,6 +1,37 @@
 # Mini Juiz Online Distribuído
 
-Protótipo de uma competição de programação com submissões em C++17. A interface exibe um problema, recebe código pelo editor ou por arquivo `.cpp` e acompanha a fila, os vereditos e os workers.
+Protótipo de uma competição de programação com submissões em C++17. A arena oferece três problemas, recebe código pelo editor ou por arquivo `.cpp` e acompanha a fila, os vereditos e o trabalho dos workers em uma central lateral de correção.
+
+## Arena de maratona
+
+| Problema | Tema | Solução de exemplo |
+|---|---|---|
+| A · Soma de dois números | Aritmética | `examples/soma.cpp` |
+| B · Maior elemento | Vetores | `examples/maior.cpp` |
+| C · Parênteses balanceados | Strings e pilhas | `examples/parenteses.cpp` |
+
+Selecione A, B ou C no caderno de problemas. Cada problema possui enunciado, exemplo, limites e casos de teste próprios. Ao alternar entre problemas, o editor mantém um rascunho separado durante a sessão da página.
+
+A central de correção mostra a fila de execução, a equipe e o problema atribuídos a cada worker, a compilação e quantos casos de teste já foram executados. O histórico identifica o problema de cada submissão. As atualizações vêm da API; não há workers simulados nem porcentagem fictícia de compilação. No celular, a central aparece abaixo da arena.
+
+Os workers enviam progresso nas renovações da reserva, pelos campos `phase`, `testsCompleted` e `testsTotal`. A API impede atualizações de reservas expiradas e a retomada reinicia o progresso. Bancos SQLite existentes recebem as novas colunas sem apagar submissões. Ao atualizar uma instalação, reconstrua a API e reinicie os workers para habilitar o progresso detalhado.
+
+## Editor de código
+
+O editor usa CodeMirror 6 com suporte a C++, tema claro, números de linha, cores de sintaxe, fechamento de delimitadores, indentação automática e autocomplete local para palavras reservadas, funções comuns, nomes do documento e trechos como `for`, `if` e `while`. Cada problema começa com o template C++ padrão e mantém seu código, seleção e histórico de edição separados durante a sessão. As sugestões não fazem análise semântica do compilador; os erros de compilação continuam sendo informados pelo juiz após o envio.
+
+| Atalho | Ação |
+|---|---|
+| `Tab` / `Shift+Tab` | Indentar com quatro espaços / recuar; avançar ou voltar entre campos de um trecho |
+| `Ctrl+Espaço` | Abrir sugestões; aceitar com Enter ou Tab |
+| `Enter` | Nova linha com indentação automática |
+| `Ctrl+Z` / `Ctrl+Y` | Desfazer / refazer (no macOS, `Cmd+Z` / `Cmd+Shift+Z`) |
+| `Ctrl+F` | Buscar no código (no macOS, `Cmd+F`) |
+| `Esc`, depois `Tab` | Sair do editor usando o teclado |
+
+O bundle `public/editor.js` e suas licenças estão incluídos no projeto. A execução normal e o Docker não precisam baixar bibliotecas do editor. Para alterar `src/editor.mjs` e regenerar o bundle, execute `npm ci` e `npm run build:editor`. A geração também atualiza `public/editor-LICENSE.txt`.
+
+Para testar os atalhos reais, sugestões, cores, rascunhos, upload, envio e responsividade no Chrome headless, execute `npm run test:editor` na raiz do projeto. O script usa uma API temporária em memória e detecta o Chrome em `/usr/bin/google-chrome`; em outros sistemas, defina `CHROME_BIN` com o caminho do executável. Se o editor avançado não carregar, a página oferece o campo de texto básico para continuar enviando soluções.
 
 ## Executar no Windows
 
@@ -67,4 +98,4 @@ $env:TEST_DOCKER = '1'
 node --test
 ```
 
-O próximo marco é acrescentar problemas B e C e o placar no estilo ICPC. Uma etapa de orquestração com Kubernetes pode reaproveitar o protocolo de reserva e envio de resultados.
+O próximo marco é acrescentar o placar no estilo ICPC. Uma etapa de orquestração com Kubernetes pode reaproveitar o protocolo de reserva e envio de resultados.
