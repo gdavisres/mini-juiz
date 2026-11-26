@@ -65,6 +65,37 @@ Para desenvolver a interface ou consultar a fila com a API fora do Docker, execu
 
 Para distribuir a execução em **dois computadores**, mantenha a API no primeiro e rode pelo menos um worker no segundo. Em ambos, construa a imagem do runner. Use uma rede de laboratório confiável. No terminal da API, defina `$env:BIND_ADDRESS = '0.0.0.0'` antes de `docker compose up --build`. Defina também um `JUDGE_TOKEN` próprio no terminal da API e nos terminais dos workers. No worker remoto, defina `$env:API_URL = 'http://IP_DA_MAQUINA_DA_API:3000'`. O navegador das duas máquinas pode acessar esse mesmo endereço. O token de desenvolvimento padrão atende ao cenário local.
 
+## Deploy na Vercel (com banco Turso)
+
+A interface e a API podem ser hospedadas na Vercel usando um banco **Turso (libSQL)**, enquanto os workers C++ com Docker rodam na sua máquina ou em uma VPS.
+
+### 1. Configurar Turso e Vercel
+
+1. Crie um banco no [Turso](https://turso.tech) e copie a **Database URL** (`libsql://...`) e o **Auth Token**.
+2. Importe este repositório na Vercel com **Application Preset** em `Other` (o [vercel.json](vercel.json) serve `public/` e direciona `/api/*` e `/internal/*` para `api/index.mjs`).
+3. Configure as variáveis de ambiente na Vercel (veja `.env.example`):
+   - `TURSO_DATABASE_URL`: URL `libsql://...` do banco Turso
+   - `TURSO_AUTH_TOKEN`: token de acesso do Turso
+   - `JUDGE_TOKEN`: segredo compartilhado com os workers
+   - `LEASE_MS`: `10000` *(opcional)*
+
+### 2. Conectar workers e fazer a demonstração
+
+Com o Docker Desktop ativo e a imagem do runner construída (`docker build -t minijuiz-runner:local ./runner`), inicie os workers no PowerShell apontando para a URL da Vercel:
+
+```powershell
+$env:API_URL = "https://SEU-PROJETO.vercel.app"
+$env:JUDGE_TOKEN = "SEU-JUDGE-TOKEN-DA-VERCEL"
+.\start-workers.cmd
+```
+
+1. Abra a URL da Vercel e confirme na central lateral que `worker-1` e `worker-2` aparecem como **Online**.
+2. Envie duas cópias de `examples/soma.cpp` no Problema A para demonstrar a correção em paralelo com progresso de compilação e testes.
+3. Envie mais uma submissão de `examples/soma.cpp`. Quando aparecer **Em correção**, pressione `Ctrl+C` na janela do worker responsável.
+4. Aguarde a expiração da reserva (~10 s): a tarefa retorna à fila, o outro worker assume e finaliza com `Accepted` em **2 tentativas**.
+5. Na janela interrompida, execute `node src\worker.mjs` para demonstrar o retorno do worker ao painel.
+6. Qualquer pessoa com o link da Vercel pode enviar soluções para os problemas A, B e C (como `examples/maior.cpp` e `examples/parenteses.cpp`) enquanto os workers estiverem conectados.
+
 ## Arquitetura
 
 ```mermaid
