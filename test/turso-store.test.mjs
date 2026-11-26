@@ -139,3 +139,95 @@ test('turso store migra banco legado sem first_claimed_at, claimed_at e tabela e
   assert.equal(claimed.id, 'legacy-t1');
   assert.equal((await store.dashboard()).events[0].type, 'claimed');
 });
+
+test('turso store persiste testResults e lastRenewedAt, preserva no heartbeat e limpa na retomada', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createTursoStore({ url: ':memory:', leaseMs: 1000, maxAttempts: 3 });
+
+  const sub = await store.submit({ participant: 'Equipe Turso Casos', problem: 'A', source: 'int main(){}' });
+  assert.deepEqual(sub.testResults, []);
+  assert.equal(sub.lastRenewedAt, null);
+
+  now = 1100;
+  const first = await store.claim('worker-1');
+  assert.deepEqual((await store.get(sub.id)).testResults, []);
+  assert.equal((await store.get(sub.id)).lastRenewedAt, null);
+
+  now = 1300;
+  const cases1 = [
+    { case: 1, status: 'passed', durationMs: 35 },
+    { case: 2, status: 'running', durationMs: null },
+  ];
+  assert.equal(await store.renew(first.id, first.lease, {
+    phase: 'testing', testsCompleted: 1, testsTotal: 3, testResults: cases1,
+  }), true);
+  assert.deepEqual((await store.get(sub.id)).testResults, cases1);
+  assert.equal((await store.get(sub.id)).lastRenewedAt, 1300);
+
+  // Heartbeat puro atualiza lastRenewedAt sem apagar testResults
+  now = 1600;
+  assert.equal(await store.renew(first.id, first.lease), true);
+  assert.deepEqual((await store.get(sub.id)).testResults, cases1);
+  assert.equal((await store.get(sub.id)).lastRenewedAt, 1600);
+
+  // Expiração zera visualização pública; retomada limpa no banco
+  now = 2700;
+  assert.deepEqual((await store.get(sub.id)).testResults, []);
+  assert.equal((await store.get(sub.id)).lastRenewedAt, null);
+
+  const second = await store.claim('worker-2');
+  assert.deepEqual((await store.get(sub.id)).testResults, []);
+  assert.equal((await store.get(sub.id)).lastRenewedAt, null);
+
+  now = 2900;
+  const finalCases = [
+    { case: 1, status: 'passed', durationMs: 10 },
+    { case: 2, status: 'passed', durationMs: 12 },
+    { case: 3, status: 'passed', durationMs: 15 },
+  ];
+  assert.equal(await store.renew(second.id, second.lease, {
+    phase: 'testing', testsCompleted: 3, testsTotal: 3, testResults: finalCases,
+  }), true);
+  assert.equal(await store.finish(second.id, { lease: second.lease, status: 'accepted', detail: '3 casos aprovados' }), true);
+  assert.deepEqual((await store.get(sub.id)).testResults, finalCases);
+  assert.deepEqual((await store.dashboard()).recentResults[0].testResults, finalCases);
+});
+
+test('turso store tolera test_results corrompido no banco sem quebrar o dashboard', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'minijuiz-turso-badjson-'));
+  const fileUrl = pathToFileURL(join(dir, 'judge.sqlite')).href;
+  t.after(() => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  const store = createTursoStore({ url: fileUrl, leaseMs: 1000, maxAttempts: 3 });
+  const sub = await store.submit({ participant: 'Corrompido', problem: 'A', source: 'int main(){}' });
+  const raw = createClient({ url: fileUrl });
+  await raw.execute({ sql: "UPDATE submissions SET test_results = '{invalido' WHERE id = ?", args: [sub.id] });
+  raw.close();
+
+  assert.deepEqual((await store.get(sub.id)).testResults, []);
+  assert.deepEqual((await store.dashboard()).submissions[0].testResults, []);
+});
+
+test('turso store limpa testResults e lastRenewedAt ao promover para dead_letter', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createTursoStore({ url: ':memory:', leaseMs: 1000, maxAttempts: 1 });
+
+  const sub = await store.submit({ participant: 'DLQ', problem: 'A', source: 'int main(){}' });
+  const job = await store.claim('worker-1');
+  now = 1200;
+  assert.equal(await store.renew(job.id, job.lease, {
+    phase: 'testing', testsCompleted: 0, testsTotal: 3,
+    testResults: [{ case: 1, status: 'running', durationMs: null }],
+  }), true);
+
+  now = 2500;
+  const dash = await store.dashboard();
+  assert.equal(dash.counts.deadLetter, 1);
+  const dead = await store.get(sub.id);
+  assert.equal(dead.status, 'dead_letter');
+  assert.deepEqual(dead.testResults, []);
+  assert.equal(dead.lastRenewedAt, null);
+  assert.equal(dead.phase, null);
+});

@@ -52,10 +52,32 @@ const privateCases = new Map([
 export const getProblem = (id) => problems.find((entry) => entry.id === id);
 export const getCases = (id) => privateCases.get(id);
 
+const caseStatuses = new Set(['running', 'passed', 'wrong_answer', 'runtime_error', 'time_limit', 'judge_error']);
+
+function validTestResults(testResults, phase, testsCompleted, total) {
+  if (testResults === undefined) return true;
+  if (!Array.isArray(testResults) || testResults.length > total) return false;
+  if (phase === 'compiling') return testResults.length === 0;
+  let completed = 0;
+  for (let i = 0; i < testResults.length; i += 1) {
+    const item = testResults[i];
+    if (!item || typeof item !== 'object') return false;
+    if (item.case !== i + 1 || !caseStatuses.has(item.status)) return false;
+    if (item.status === 'running') {
+      if (i !== testResults.length - 1 || item.durationMs !== null) return false;
+    } else {
+      if (!Number.isInteger(item.durationMs) || item.durationMs < 0) return false;
+      completed += 1;
+    }
+  }
+  return completed === testsCompleted;
+}
+
 export function validProgress(progress, problemId) {
   const total = getCases(problemId)?.length;
   return Boolean(total && progress && ['compiling', 'testing'].includes(progress.phase)
     && Number.isInteger(progress.testsCompleted) && progress.testsCompleted >= 0
     && progress.testsCompleted <= total && progress.testsTotal === total
-    && (progress.phase !== 'compiling' || progress.testsCompleted === 0));
+    && (progress.phase !== 'compiling' || progress.testsCompleted === 0)
+    && validTestResults(progress.testResults, progress.phase, progress.testsCompleted, total));
 }

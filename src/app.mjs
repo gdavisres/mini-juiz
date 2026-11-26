@@ -9,6 +9,10 @@ const assets = new Map([
   ['/app.js', ['app.js', 'text/javascript']],
   ['/editor.js', ['editor.js', 'text/javascript']],
   ['/editor-LICENSE.txt', ['editor-LICENSE.txt', 'text/plain']],
+  ['/workers', ['workers.html', 'text/html']],
+  ['/workers.html', ['workers.html', 'text/html']],
+  ['/workers.css', ['workers.css', 'text/css']],
+  ['/workers.js', ['workers.js', 'text/javascript']],
 ]);
 
 class HttpError extends Error {
@@ -85,7 +89,7 @@ export function createHandler({ store, token }) {
     if (typeof data.lease !== 'string') throw new HttpError(400, 'Reserva inválida.');
     const [, id, operation] = job;
     if (operation === 'renew') {
-      const hasProgress = ['phase', 'testsCompleted', 'testsTotal'].some((field) => Object.hasOwn(data, field));
+      const hasProgress = ['phase', 'testsCompleted', 'testsTotal', 'testResults'].some((field) => Object.hasOwn(data, field));
       const current = await store.get(id);
       if (hasProgress && current && !validProgress(data, current.problem)) throw new HttpError(400, 'Progresso inválido.');
       if (!(await store.renew(id, data.lease, hasProgress ? data : undefined))) {

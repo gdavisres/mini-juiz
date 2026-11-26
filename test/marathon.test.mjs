@@ -32,10 +32,22 @@ test('cada problema corrige seus casos e informa progresso após cada execução
     assert.ok(limits.timeLimit > 0 && limits.memoryLimit > 0);
     const total = progress[0].testsTotal;
     assert.ok(total >= 3);
-    assert.deepEqual(progress, [
-      { phase: 'compiling', testsCompleted: 0, testsTotal: total },
-      ...Array.from({ length: total + 1 }, (_, count) => ({ phase: 'testing', testsCompleted: count, testsTotal: total })),
-    ]);
+    assert.deepEqual(progress[0], { phase: 'compiling', testsCompleted: 0, testsTotal: total, testResults: [] });
+    assert.equal(progress.length, 1 + total * 2);
+    for (let i = 0; i < total; i += 1) {
+      const before = progress[1 + i * 2];
+      const after = progress[2 + i * 2];
+      assert.equal(before.phase, 'testing');
+      assert.equal(before.testsCompleted, i);
+      assert.equal(before.testResults.length, i + 1);
+      assert.deepEqual(before.testResults[i], { case: i + 1, status: 'running', durationMs: null });
+      assert.equal(after.phase, 'testing');
+      assert.equal(after.testsCompleted, i + 1);
+      assert.equal(after.testResults.length, i + 1);
+      assert.equal(after.testResults[i].case, i + 1);
+      assert.equal(after.testResults[i].status, 'passed');
+      assert.ok(Number.isInteger(after.testResults[i].durationMs) && after.testResults[i].durationMs >= 0);
+    }
     const incorrect = { ...runner, run: async () => ({ code: 0, stdout: Buffer.from('incorreto') }) };
     assert.equal((await judge('source', incorrect, id)).status, 'wrong_answer');
   }

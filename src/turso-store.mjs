@@ -4,7 +4,18 @@ import { getCases, validProgress } from './problems.mjs';
 
 const publicFields = `id, participant, problem, attempts, created_at AS createdAt,
   finished_at AS finishedAt, worker, detail, status, expires AS _expires, lease AS _lease,
-  phase, tests_completed AS testsCompleted, tests_total AS testsTotal`;
+  phase, tests_completed AS testsCompleted, tests_total AS testsTotal,
+  test_results AS _testResults, last_renewed_at AS lastRenewedAt`;
+
+function parseTestResults(raw) {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function publicSubmission(row, now, maxAttempts) {
   if (!row) return undefined;
@@ -25,6 +36,8 @@ function publicSubmission(row, now, maxAttempts) {
     testsTotal: Number(row.testsTotal),
     expires: expired || row.status !== 'running' ? null : Number(row._expires),
     leasePrefix: expired || !row._lease ? null : String(row._lease).slice(0, 8),
+    testResults: expired ? [] : parseTestResults(row._testResults),
+    lastRenewedAt: expired || row.lastRenewedAt === null || row.lastRenewedAt === undefined ? null : Number(row.lastRenewedAt),
   };
 }
 
@@ -55,7 +68,8 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
             attempts INTEGER NOT NULL DEFAULT 0, worker TEXT, lease TEXT,
             expires INTEGER, detail TEXT, created_at INTEGER NOT NULL, finished_at INTEGER,
             phase TEXT, tests_completed INTEGER NOT NULL DEFAULT 0, tests_total INTEGER NOT NULL DEFAULT 0,
-            first_claimed_at INTEGER, claimed_at INTEGER
+            first_claimed_at INTEGER, claimed_at INTEGER,
+            test_results TEXT, last_renewed_at INTEGER
           )`,
           'CREATE INDEX IF NOT EXISTS submissions_queue ON submissions(status, created_at)',
           'CREATE TABLE IF NOT EXISTS workers (id TEXT PRIMARY KEY, last_seen INTEGER NOT NULL)',
@@ -74,7 +88,10 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
         const info = await client.execute('PRAGMA table_info(submissions)');
         const columns = new Set(info.rows.map((row) => row.name));
         const migrations = [];
-        for (const [name, definition] of [['first_claimed_at', 'INTEGER'], ['claimed_at', 'INTEGER']]) {
+        for (const [name, definition] of [
+          ['first_claimed_at', 'INTEGER'], ['claimed_at', 'INTEGER'],
+          ['test_results', 'TEXT'], ['last_renewed_at', 'INTEGER'],
+        ]) {
           if (!columns.has(name)) migrations.push(`ALTER TABLE submissions ADD COLUMN ${name} ${definition}`);
         }
         if (migrations.length) await client.batch(migrations, 'write');
@@ -98,7 +115,8 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
     const detail = `Limite de ${maxAttempts} tentativas atingido após expiração de reserva`;
     const res = await client.execute({
       sql: `UPDATE submissions SET
-        status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?
+        status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?,
+        phase = NULL, tests_completed = 0, test_results = NULL, last_renewed_at = NULL
         WHERE status = 'running' AND expires <= ? AND attempts >= ?
         RETURNING id, worker, lease, attempts`,
       args: [now, detail, now, maxAttempts],
@@ -249,7 +267,7 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
         {
           sql: `UPDATE submissions SET
             status = 'running', worker = ?, lease = ?, expires = ?, attempts = attempts + 1,
-            phase = NULL, tests_completed = 0,
+            phase = NULL, tests_completed = 0, test_results = NULL, last_renewed_at = NULL,
             first_claimed_at = COALESCE(first_claimed_at, ?), claimed_at = ?
             WHERE id = (SELECT id FROM submissions WHERE status = 'queued' OR
               (status = 'running' AND expires <= ? AND attempts < ?) ORDER BY created_at, rowid LIMIT 1)
@@ -289,17 +307,19 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
         });
         if (!validProgress(update, current.rows[0]?.problem)) return false;
       }
+      const serialized = update?.testResults !== undefined ? JSON.stringify(update.testResults) : null;
       const res = update === undefined
         ? await client.execute({
-          sql: `UPDATE submissions SET expires = ?
+          sql: `UPDATE submissions SET expires = ?, last_renewed_at = ?
             WHERE id = ? AND lease = ? AND status = 'running' AND expires > ? RETURNING worker`,
-          args: [now + leaseMs, id, lease, now],
+          args: [now + leaseMs, now, id, lease, now],
         })
         : await client.execute({
-          sql: `UPDATE submissions SET expires = ?, phase = ?, tests_completed = ?
+          sql: `UPDATE submissions SET expires = ?, last_renewed_at = ?, phase = ?, tests_completed = ?,
+            test_results = COALESCE(?, test_results)
             WHERE id = ? AND lease = ? AND status = 'running' AND expires > ?
               AND tests_completed <= ? AND (phase IS NULL OR phase = 'compiling' OR ? = 'testing') RETURNING worker`,
-          args: [now + leaseMs, update.phase, update.testsCompleted, id, lease, now, update.testsCompleted, update.phase],
+          args: [now + leaseMs, now, update.phase, update.testsCompleted, serialized, id, lease, now, update.testsCompleted, update.phase],
         });
       const job = res.rows[0];
       if (job) {
