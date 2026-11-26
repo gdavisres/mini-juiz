@@ -1,17 +1,37 @@
 const byId = (id) => document.getElementById(id);
 const labels = {
   queued: 'Na fila', running: 'Em correção', accepted: 'Accepted', wrong_answer: 'Wrong Answer',
-  compile_error: 'Compilation Error', runtime_error: 'Runtime Error', time_limit: 'Time Limit Exceeded', judge_error: 'Erro do juiz',
+  compile_error: 'Compilation Error', runtime_error: 'Runtime Error', time_limit: 'Time Limit Exceeded',
+  judge_error: 'Erro do juiz', dead_letter: 'Dead Letter',
 };
+const eventLabels = {
+  submitted: 'Submetida', claimed: 'Reservada', reclaimed: 'Retomada',
+  stale_rejected: 'Rejeitada (409)', idempotent_replay: 'Idempotente',
+  finished: 'Concluída', dead_letter: 'Dead Letter',
+};
+const burstSource = `#include <bits/stdc++.h>
+#include <unistd.h>
+using namespace std;
+
+int main() {
+    long long a, b;
+    cin >> a >> b;
+    sleep(1);
+    cout << a + b << '\\n';
+}
+`;
 const workerLabels = { online: 'Disponível', busy: 'Corrigindo', offline: 'Offline' };
 const time = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'medium' });
 let problems = [];
 let problem;
 let submitting = false;
+let clockOffset = 0;
+let leaseMs = 10000;
 let previousSubmissions = '';
 let previousWorkers = '';
 let previousQueue = '';
 let previousFeed = '';
+let previousEvents = '';
 const drafts = new Map();
 let sourceEditor = {
   getValue: () => byId('source').value,
@@ -155,6 +175,18 @@ function renderWorkers(workers, active) {
         activity.setAttribute('aria-hidden', 'true');
         body.append(activity);
       }
+      if (job.expires) {
+        const ttl = element('div', undefined, 'lease-ttl');
+        ttl.dataset.expires = String(job.expires);
+        ttl.dataset.leasePrefix = job.leasePrefix ?? '';
+        const ttlText = element('span', '', 'ttl-text');
+        const ttlBar = element('progress', undefined, 'ttl-bar');
+        ttlBar.max = leaseMs;
+        ttlBar.value = Math.max(0, job.expires - (Date.now() + clockOffset));
+        ttlBar.setAttribute('aria-label', `Tempo restante da reserva de ${job.participant}`);
+        ttl.append(ttlText, ttlBar);
+        body.append(ttl);
+      }
       body.append(element('small', `Submissão #${job.id.slice(0, 6)} · Tentativa ${job.attempts}`, 'task-id'));
       item.append(body);
     } else {
@@ -162,6 +194,64 @@ function renderWorkers(workers, active) {
     }
     return item;
   }) : [element('li', 'Nenhum worker conectado. Inicie um worker para corrigir as soluções da fila.', 'empty')]));
+  updateLeaseCountdowns();
+}
+
+function updateLeaseCountdowns() {
+  const now = Date.now() + clockOffset;
+  for (const node of document.querySelectorAll('.lease-ttl')) {
+    const remaining = Math.max(0, Number(node.dataset.expires) - now);
+    const seconds = (remaining / 1000).toFixed(1).replace('.', ',');
+    const prefix = node.dataset.leasePrefix;
+    const text = node.querySelector('.ttl-text');
+    const bar = node.querySelector('.ttl-bar');
+    if (text) text.textContent = `TTL ${seconds} s${prefix ? ` · lease ${prefix}` : ''}`;
+    if (bar) {
+      bar.max = leaseMs;
+      bar.value = remaining;
+    }
+    node.classList.toggle('expiring', remaining <= Math.min(3000, leaseMs * 0.3));
+  }
+}
+
+function formatDuration(ms) {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+}
+
+function renderDistributed(data) {
+  const metrics = data.metrics;
+  if (metrics) {
+    byId('sd-queue-ms').textContent = formatDuration(metrics.avgQueueMs);
+    byId('sd-exec-ms').textContent = formatDuration(metrics.avgExecMs);
+    byId('sd-reclaims').textContent = String(metrics.reclaims);
+    byId('sd-stale').textContent = String(metrics.staleRejections);
+    byId('sd-dead').textContent = String(metrics.deadLetters);
+  }
+  if (data.config) {
+    byId('sd-config').textContent = `Lease ${formatDuration(data.config.leaseMs)} · Máx. ${data.config.maxAttempts} tentativas`;
+  }
+  const events = data.events ?? [];
+  const key = JSON.stringify(events);
+  if (key === previousEvents) return;
+  previousEvents = key;
+  byId('event-log').replaceChildren(...(events.length ? events.map((ev) => {
+    const item = element('li', undefined, 'event-item');
+    const badge = element('span', eventLabels[ev.type] ?? ev.type, `event-badge ${ev.type}`);
+    const meta = [];
+    if (ev.submissionId) meta.push(`#${ev.submissionId.slice(0, 6)}`);
+    if (ev.worker) meta.push(ev.worker);
+    if (ev.leasePrefix) meta.push(`lease ${ev.leasePrefix}`);
+    if (ev.attempt) meta.push(`tentativa ${ev.attempt}`);
+    const body = element('div', undefined, 'event-body');
+    const line = element('div', undefined, 'event-line');
+    line.append(badge, element('strong', meta.join(' · ') || 'Evento do protocolo'));
+    body.append(line);
+    if (ev.detail) body.append(element('small', ev.detail));
+    item.append(element('time', time.format(ev.createdAt), 'event-time'), body);
+    return item;
+  }) : [element('li', 'Nenhum evento registrado ainda.', 'empty')]));
 }
 
 function renderQueue(active, counts) {
@@ -208,7 +298,12 @@ function setConnection(connected) {
 
 async function loadDashboard() {
   const data = await api('/api/dashboard');
-  for (const [name, value] of Object.entries(data.counts)) byId(name).textContent = value;
+  if (typeof data.serverTime === 'number') clockOffset = data.serverTime - Date.now();
+  if (data.config?.leaseMs) leaseMs = data.config.leaseMs;
+  for (const [name, value] of Object.entries(data.counts)) {
+    const node = byId(name);
+    if (node) node.textContent = value;
+  }
   byId('pipeline-queue').textContent = data.counts.queued;
   byId('pipeline-workers').textContent = data.counts.running;
   byId('pipeline-done').textContent = data.counts.accepted;
@@ -217,6 +312,7 @@ async function loadDashboard() {
   renderWorkers(data.workers, active);
   renderQueue(active, data.counts);
   renderFeed(data.recentResults ?? data.submissions);
+  renderDistributed(data);
   setConnection(true);
 }
 
@@ -292,7 +388,31 @@ byId('submission-form').addEventListener('submit', async (event) => {
   }
 });
 
+byId('burst-send')?.addEventListener('click', async () => {
+  const button = byId('burst-send');
+  const status = byId('burst-message');
+  if (button.disabled) return;
+  button.disabled = true;
+  status.classList.remove('error');
+  status.textContent = 'Disparando 6 submissões concorrentes (Problema A)…';
+  try {
+    await Promise.all(Array.from({ length: 6 }, (_, index) => api('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participant: `Rajada #${index + 1}`, problem: 'A', source: burstSource }),
+    })));
+    status.textContent = '6 tarefas enviadas em paralelo. Acompanhe a distribuição entre os workers.';
+    await loadDashboard();
+  } catch (error) {
+    status.classList.add('error');
+    status.textContent = error.message || 'Não foi possível enviar a rajada.';
+  } finally {
+    button.disabled = false;
+  }
+});
+
 async function start() {
+  setInterval(updateLeaseCountdowns, 250);
   try {
     const { createSourceEditor } = await import('/editor.js');
     sourceEditor = createSourceEditor({

@@ -19,6 +19,7 @@
       <a href="#arena" title="Arena"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Arena</a>
       <a href="#problema" title="Problema"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-3M8 3v4h8V3H8Zm0 9h8m-8 5h5"/></svg>Problema</a>
       <a href="#submissoes" title="Submissões"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7m8-14 6 7-6 7m-3-15-2 16"/></svg>Submissões</a>
+      <a href="#distribuido" title="Sistemas Distribuídos"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M8.6 7.5 11 15.2M15.4 7.5 13 15.2M9 6h6"/></svg>Distribuído</a>
       <a href="#workers" title="Workers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M12 6.5h5m-5 11h5"/></svg>Workers</a>
     </nav>
     <div class="sidebar-bottom"><div class="sidebar-note"><span class="note-symbol" aria-hidden="true">&lt;/&gt;</span><strong>Envio de soluções</strong><p>Escreva no editor ou abra um arquivo .cpp.</p><a href="#editor-title">Abrir editor <span aria-hidden="true">↗</span></a></div><div class="sidebar-footer"><span class="mini-mark" aria-hidden="true">&gt;_</span> Mini Juiz <span>C++17</span></div></div>
@@ -59,6 +60,19 @@
       </div>
       <div class="activity">
         <section class="panel history" id="submissoes" aria-labelledby="history-title"><div class="panel-top"><div class="panel-title"><span class="heading-symbol" aria-hidden="true">↗</span><h2 id="history-title">Submissões recentes</h2></div><span class="live-label"><span class="dot"></span> Atualização automática</span></div><p class="empty" id="submissions-empty">Carregando submissões…</p><div class="table-wrap" id="table-wrap" hidden><table><caption class="sr-only">Últimas soluções enviadas e seus resultados</caption><thead><tr><th scope="col">Problema</th><th scope="col">Participante</th><th scope="col">Veredito</th><th scope="col">Worker</th><th scope="col">Tentativas</th><th scope="col">Hora</th></tr></thead><tbody id="submissions"></tbody></table></div></section>
+        <section class="panel distributed" id="distribuido" aria-labelledby="distributed-title">
+          <div class="panel-top"><div class="panel-title"><span class="heading-symbol" aria-hidden="true">◈</span><div><span class="overline">OBSERVABILIDADE</span><h2 id="distributed-title">Sistemas Distribuídos · Protocolo ao vivo</h2></div></div><button type="button" id="burst-send" class="burst-button">Simular rajada (6 tarefas)</button></div>
+          <p id="burst-message" class="message burst-message" role="status"></p>
+          <div class="sd-metrics" aria-label="Métricas de Sistemas Distribuídos">
+            <div class="sd-metric"><span>Espera média na fila</span><strong id="sd-queue-ms">—</strong></div>
+            <div class="sd-metric"><span>Execução média</span><strong id="sd-exec-ms">—</strong></div>
+            <div class="sd-metric"><span>Retomadas</span><strong id="sd-reclaims">0</strong></div>
+            <div class="sd-metric"><span>Rejeições 409</span><strong id="sd-stale">0</strong></div>
+            <div class="sd-metric"><span>Dead-letter</span><strong id="sd-dead">0</strong></div>
+          </div>
+          <div class="event-log-header"><h3>Linha do tempo de eventos</h3><span id="sd-config">Lease 10 s · Máx. 3 tentativas</span></div>
+          <ol class="event-log" id="event-log"><li class="empty">Aguardando eventos do protocolo…</li></ol>
+        </section>
 
       </div>
       </div>
