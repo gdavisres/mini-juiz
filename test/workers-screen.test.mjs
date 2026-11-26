@@ -93,3 +93,15 @@ test('servidor entrega /workers, /workers.html, /workers.css e /workers.js com C
     assert.equal(csp.includes("script-src 'unsafe-inline'"), false);
   }
 });
+
+test('página /workers cumpre CSP estrita e contém landmarks de cluster e foco', async (t) => {
+  const { baseUrl } = await startTestServer(t);
+  const html = await (await fetch(`${baseUrl}/workers`)).text();
+  assert.equal(/<script(?![^>]*\bsrc=)/i.test(html), false, 'não pode ter <script> inline');
+  assert.equal(/\son[a-z]+\s*=/i.test(html), false, 'não pode ter handlers inline');
+  assert.ok(html.includes('href="/workers.css"'));
+  assert.ok(html.includes('src="/workers.js"'));
+  for (const id of ['worker-selector', 'cluster-view', 'focus-view', 'queue-column', 'workers-grid', 'results-column']) {
+    assert.ok(html.includes(`id="${id}"`), `esperava #${id} em workers.html`);
+  }
+});

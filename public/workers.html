@@ -3,9 +3,160 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f6fb">
+  <meta name="description" content="Painel ao vivo dos workers do Mini Juiz para apresentação em segunda tela.">
   <title>Mini Juiz · Painel de Workers</title>
   <link rel="stylesheet" href="/workers.css">
   <script type="module" src="/workers.js"></script>
 </head>
-<body></body>
+<body>
+  <a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-group">
+        <a class="brand" href="/workers" aria-label="Painel de Workers">
+          <span class="brand-mark" aria-hidden="true">&gt;_</span>
+          <span>mini<span class="brand-accent">juiz</span><small>PAINEL DE WORKERS · AO VIVO</small></span>
+        </a>
+        <div class="view-selector" id="worker-selector" role="group" aria-label="Selecionar visão de workers"></div>
+      </div>
+
+      <div class="topbar-actions">
+        <span class="protocol-pill" id="protocol-config">Lease 10 s · Máx. 3 tentativas</span>
+        <a class="arena-link" href="/">Arena <span aria-hidden="true">↗</span></a>
+        <span class="connection" id="connection" role="status"><span class="dot"></span> Conectando</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <section class="summary-strip" aria-label="Resumo do cluster">
+      <div class="summary-card">
+        <span>Na fila</span>
+        <strong id="count-queued">—</strong>
+        <small>Aguardando claim</small>
+      </div>
+      <div class="summary-card accent">
+        <span>Em correção</span>
+        <strong id="count-running">—</strong>
+        <small>Contêineres ativos</small>
+      </div>
+      <div class="summary-card success">
+        <span>Aceitas</span>
+        <strong id="count-accepted">—</strong>
+        <small>De <span id="count-total">—</span> submissões</small>
+      </div>
+      <div class="summary-card">
+        <span>Espera / Execução</span>
+        <strong id="metric-latency">—</strong>
+        <small>Média fila · execução</small>
+      </div>
+      <div class="summary-card warn">
+        <span>Retomadas / 409 / DLQ</span>
+        <strong id="metric-faults">0 · 0 · 0</strong>
+        <small>Failover · Fencing · Dead-letter</small>
+      </div>
+    </section>
+
+    <section class="cluster-view" id="cluster-view" aria-label="Visão geral do cluster">
+      <section class="stage-column panel" id="queue-column" aria-labelledby="queue-heading">
+        <div class="panel-top">
+          <div>
+            <span class="overline">1 · CHEGADA</span>
+            <h2 id="queue-heading">Fila de execução</h2>
+          </div>
+          <span class="stage-badge" id="queue-badge">0</span>
+        </div>
+        <ol class="queue-list" id="queue-list">
+          <li class="empty">Carregando fila…</li>
+        </ol>
+      </section>
+
+      <section class="stage-column panel workers-stage" aria-labelledby="workers-heading">
+        <div class="panel-top">
+          <div>
+            <span class="overline">2 · PROCESSAMENTO ISOLADO (DOCKER)</span>
+            <h2 id="workers-heading">Workers ao vivo</h2>
+          </div>
+          <span class="stage-badge accent" id="workers-badge">0 conectados</span>
+        </div>
+        <p class="stage-hint">Clique em qualquer worker para abrir o modo foco daquela máquina.</p>
+        <div class="workers-grid" id="workers-grid">
+          <p class="empty">Carregando workers…</p>
+        </div>
+      </section>
+
+      <section class="stage-column panel" id="results-column" aria-labelledby="results-heading">
+        <div class="panel-top">
+          <div>
+            <span class="overline">3 · RETORNO E PROTOCOLO</span>
+            <h2 id="results-heading">Vereditos e eventos</h2>
+          </div>
+          <span class="live-tag"><span class="dot"></span> Ao vivo</span>
+        </div>
+        <div class="results-split">
+          <div class="sub-block">
+            <h3>Últimos retornos</h3>
+            <ol class="results-list" id="results-list">
+              <li class="empty">Aguardando vereditos…</li>
+            </ol>
+          </div>
+          <div class="sub-block">
+            <h3>Linha do tempo do protocolo</h3>
+            <ol class="events-list" id="events-list">
+              <li class="empty">Aguardando eventos…</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="focus-view" id="focus-view" hidden aria-label="Visão focada de um worker">
+      <div class="focus-header">
+        <button type="button" class="back-button" id="back-to-cluster">← Todos os workers</button>
+        <div class="focus-identity">
+          <h1 id="focus-worker-name">worker</h1>
+          <span class="worker-state" id="focus-worker-state"><i class="dot" aria-hidden="true"></i> <span>—</span></span>
+          <span class="heartbeat-pill" id="focus-heartbeat">Sem heartbeat</span>
+        </div>
+      </div>
+
+      <div class="focus-grid">
+        <section class="panel focus-main" id="focus-stage" aria-labelledby="focus-stage-title">
+          <div class="panel-top">
+            <div>
+              <span class="overline">CICLO INTERNO DO WORKER</span>
+              <h2 id="focus-stage-title">Aguardando tarefa…</h2>
+            </div>
+            <span class="task-meta-pill" id="focus-task-meta">Livre</span>
+          </div>
+          <div class="focus-body" id="focus-body"></div>
+        </section>
+
+        <aside class="focus-side">
+          <section class="panel">
+            <div class="panel-top">
+              <div>
+                <span class="overline">HISTÓRICO DESTE WORKER</span>
+                <h2>Últimos vereditos</h2>
+              </div>
+            </div>
+            <ol class="results-list" id="focus-results"></ol>
+          </section>
+
+          <section class="panel">
+            <div class="panel-top">
+              <div>
+                <span class="overline">PROTOCOLO DESTE WORKER</span>
+                <h2>Eventos recentes</h2>
+              </div>
+            </div>
+            <ol class="events-list" id="focus-events"></ol>
+          </section>
+        </aside>
+      </div>
+    </section>
+  </main>
+</body>
 </html>

@@ -90,7 +90,7 @@ $env:JUDGE_TOKEN = "SEU-JUDGE-TOKEN-DA-VERCEL"
 .\start-workers.cmd
 ```
 
-1. **Concorrência e balanceamento de carga:** abra a URL da Vercel, confirme que `worker-1` e `worker-2` aparecem como **Disponível** e clique em **Simular rajada (6 tarefas)** na seção **Sistemas Distribuídos · Protocolo ao vivo**. Mostre os workers reservando tarefas atomicamente sem duplicação e os eventos `submitted` / `claimed` / `finished` na linha do tempo.
+1. **Concorrência e balanceamento de carga:** abra a URL da Vercel na tela principal e abra `/workers` (visão do cluster) ou `/workers?id=worker-1` (modo foco de um único worker) na segunda tela/computador para acompanhar ao vivo a chegada na fila, `claim`, compilação, casos de teste individuais com tempos, heartbeat do lease e retorno do veredito. Confirme que `worker-1` e `worker-2` aparecem como **Disponível** e clique em **Simular rajada (6 tarefas)** na seção **Sistemas Distribuídos · Protocolo ao vivo**. Mostre os workers reservando tarefas atomicamente sem duplicação e os eventos `submitted` / `claimed` / `finished` na linha do tempo.
 2. **Falha crash-stop + TTL ao vivo:** envie `examples/soma.cpp` no Problema A. Assim que a tarefa entrar **Em correção**, acompanhe a barra de **TTL** (10 s) no card do worker e pressione `Ctrl+C` na janela dele. Quando o TTL zerar, mostre o evento `Retomada` (`reclaimed`), o outro worker concluindo com **2 tentativas** e o contador de retomadas subindo.
 3. **Worker atrasado / Fencing token (`409`):** abra um terminal extra com atraso simulado antes do `finish` (maior que `LEASE_MS`):
    ```powershell
