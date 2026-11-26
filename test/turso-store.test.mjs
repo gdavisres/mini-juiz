@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { createClient } from '@libsql/client';
 import { createTursoStore } from '../src/turso-store.mjs';
 
 test('turso store suporta submissão, reserva, progresso, expiração, retomada e conclusão idempotente', async (t) => {
@@ -101,4 +106,36 @@ test('turso store registra eventos distribuídos, métricas, leasePrefix e dead_
   assert.equal((await store.get(sub2.id)).status, 'dead_letter');
   assert.equal(await store.claim('w1'), undefined);
   assert.equal((await store.dashboard()).events.filter((e) => e.type === 'dead_letter').length, 1);
+});
+
+test('turso store migra banco legado sem first_claimed_at, claimed_at e tabela events preservando dados', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'minijuiz-turso-mig-'));
+  const fileUrl = pathToFileURL(join(dir, 'judge.sqlite')).href;
+  t.after(() => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  const legacy = createClient({ url: fileUrl });
+  await legacy.batch([
+    `CREATE TABLE submissions (
+      id TEXT PRIMARY KEY, participant TEXT NOT NULL, problem TEXT NOT NULL,
+      source TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+      attempts INTEGER NOT NULL DEFAULT 0, worker TEXT, lease TEXT,
+      expires INTEGER, detail TEXT, created_at INTEGER NOT NULL, finished_at INTEGER,
+      phase TEXT, tests_completed INTEGER NOT NULL DEFAULT 0, tests_total INTEGER NOT NULL DEFAULT 0
+    )`,
+    'CREATE TABLE workers (id TEXT PRIMARY KEY, last_seen INTEGER NOT NULL)',
+    `INSERT INTO submissions (id, participant, problem, source, status, created_at, tests_total)
+      VALUES ('legacy-t1', 'Equipe Antiga', 'A', 'int main(){}', 'queued', 1000, 3)`,
+  ], 'write');
+  legacy.close();
+
+  const store = createTursoStore({ url: fileUrl, leaseMs: 1000, maxAttempts: 3 });
+  const dash = await store.dashboard();
+  assert.equal(dash.counts.total, 1);
+  assert.equal(dash.counts.queued, 1);
+  assert.equal(dash.metrics.avgQueueMs, null);
+  assert.equal(dash.events.length, 0);
+
+  const claimed = await store.claim('worker-migrado');
+  assert.equal(claimed.id, 'legacy-t1');
+  assert.equal((await store.dashboard()).events[0].type, 'claimed');
 });
