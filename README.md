@@ -78,8 +78,9 @@ A interface e a API podem ser hospedadas na Vercel usando um banco **Turso (libS
    - `TURSO_AUTH_TOKEN`: token de acesso do Turso
    - `JUDGE_TOKEN`: segredo compartilhado com os workers
    - `LEASE_MS`: `10000` *(opcional)*
+   - `MAX_ATTEMPTS`: `3` *(opcional, limite antes de `dead_letter`)*
 
-### 2. Conectar workers e fazer a demonstração
+### 2. Conectar workers e roteiro da demonstração de Sistemas Distribuídos
 
 Com o Docker Desktop ativo e a imagem do runner construída (`docker build -t minijuiz-runner:local ./runner`), inicie os workers no PowerShell apontando para a URL da Vercel:
 
@@ -89,12 +90,18 @@ $env:JUDGE_TOKEN = "SEU-JUDGE-TOKEN-DA-VERCEL"
 .\start-workers.cmd
 ```
 
-1. Abra a URL da Vercel e confirme na central lateral que `worker-1` e `worker-2` aparecem como **Online**.
-2. Envie duas cópias de `examples/soma.cpp` no Problema A para demonstrar a correção em paralelo com progresso de compilação e testes.
-3. Envie mais uma submissão de `examples/soma.cpp`. Quando aparecer **Em correção**, pressione `Ctrl+C` na janela do worker responsável.
-4. Aguarde a expiração da reserva (~10 s): a tarefa retorna à fila, o outro worker assume e finaliza com `Accepted` em **2 tentativas**.
-5. Na janela interrompida, execute `node src\worker.mjs` para demonstrar o retorno do worker ao painel.
-6. Qualquer pessoa com o link da Vercel pode enviar soluções para os problemas A, B e C (como `examples/maior.cpp` e `examples/parenteses.cpp`) enquanto os workers estiverem conectados.
+1. **Concorrência e balanceamento de carga:** abra a URL da Vercel, confirme que `worker-1` e `worker-2` aparecem como **Disponível** e clique em **Simular rajada (6 tarefas)** na seção **Sistemas Distribuídos · Protocolo ao vivo**. Mostre os workers reservando tarefas atomicamente sem duplicação e os eventos `submitted` / `claimed` / `finished` na linha do tempo.
+2. **Falha crash-stop + TTL ao vivo:** envie `examples/soma.cpp` no Problema A. Assim que a tarefa entrar **Em correção**, acompanhe a barra de **TTL** (10 s) no card do worker e pressione `Ctrl+C` na janela dele. Quando o TTL zerar, mostre o evento `Retomada` (`reclaimed`), o outro worker concluindo com **2 tentativas** e o contador de retomadas subindo.
+3. **Worker atrasado / Fencing token (`409`):** abra um terminal extra com atraso simulado antes do `finish` (maior que `LEASE_MS`):
+   ```powershell
+   $env:API_URL = "https://SEU-PROJETO.vercel.app"
+   $env:JUDGE_TOKEN = "SEU-JUDGE-TOKEN-DA-VERCEL"
+   $env:WORKER_ID = "worker-lento"
+   $env:SIMULATE_STALE_MS = "13000"
+   node src\worker.mjs
+   ```
+   Envie uma submissão: quando o `worker-lento` segurar o resultado, o lease expira, outro worker normal retoma e conclui, e ao acordar o `worker-lento` recebe **HTTP `409`** — registrado ao vivo como **Rejeitada (409)** na linha do tempo e no contador de rejeições.
+4. **Proteção Dead-letter:** se uma tarefa expirar `MAX_ATTEMPTS` vezes consecutivas (padrão 3), a API a promove para **Dead Letter** em vez de reprocessá-la infinitamente.
 
 ## Arquitetura
 
