@@ -49,3 +49,56 @@ test('turso store suporta submissão, reserva, progresso, expiração, retomada 
   assert.equal(final.detail, 'OK');
   assert.equal((await store.dashboard()).counts.accepted, 1);
 });
+
+test('turso store registra eventos distribuídos, métricas, leasePrefix e dead_letter', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createTursoStore({ url: ':memory:', leaseMs: 1000, maxAttempts: 2 });
+
+  const sub = await store.submit({ participant: 'Equipe SD', problem: 'A', source: 'int main(){}' });
+  assert.equal(sub.expires, null);
+  assert.equal(sub.leasePrefix, null);
+
+  now = 1200;
+  const first = await store.claim('w1');
+  const running = await store.get(sub.id);
+  assert.equal(running.expires, 2200);
+  assert.equal(running.leasePrefix, first.lease.slice(0, 8));
+  assert.notEqual(running.leasePrefix, first.lease);
+
+  now = 2300;
+  assert.equal(await store.renew(sub.id, first.lease), false);
+  const second = await store.claim('w2');
+  assert.equal(second.attempts, 2);
+  assert.equal(await store.finish(sub.id, { lease: first.lease, status: 'accepted', detail: 'ok' }), false);
+
+  now = 2800;
+  assert.equal(await store.finish(sub.id, { lease: second.lease, status: 'accepted', detail: 'ok' }), true);
+  assert.equal(await store.finish(sub.id, { lease: second.lease, status: 'accepted', detail: 'ok' }), true);
+
+  const dash = await store.dashboard();
+  assert.equal(dash.serverTime, 2800);
+  assert.deepEqual(dash.config, { leaseMs: 1000, maxAttempts: 2 });
+  assert.equal(dash.metrics.avgQueueMs, 200);
+  assert.equal(dash.metrics.avgExecMs, 500);
+  assert.equal(dash.metrics.reclaims, 1);
+  assert.equal(dash.metrics.staleRejections, 2);
+  assert.equal(dash.metrics.idempotentReplays, 1);
+  assert.equal(dash.metrics.deadLetters, 0);
+  assert.deepEqual(
+    dash.events.map((e) => e.type).reverse(),
+    ['submitted', 'claimed', 'stale_rejected', 'reclaimed', 'stale_rejected', 'finished', 'idempotent_replay'],
+  );
+
+  const sub2 = await store.submit({ participant: 'Falha', problem: 'A', source: 'int main(){}' });
+  await store.claim('w1');
+  now += 1100;
+  await store.claim('w2');
+  now += 1100;
+  const dashDead = await store.dashboard();
+  assert.equal(dashDead.counts.deadLetter, 1);
+  assert.equal(dashDead.metrics.deadLetters, 1);
+  assert.equal((await store.get(sub2.id)).status, 'dead_letter');
+  assert.equal(await store.claim('w1'), undefined);
+  assert.equal((await store.dashboard()).events.filter((e) => e.type === 'dead_letter').length, 1);
+});
