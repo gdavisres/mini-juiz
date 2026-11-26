@@ -103,3 +103,72 @@ test('sqlite store migra banco legado sem first_claimed_at, claimed_at e tabela 
   assert.equal(claimed.id, 'legacy-1');
   assert.equal(store.dashboard().events[0].type, 'claimed');
 });
+
+test('sqlite store persiste testResults e lastRenewedAt, preserva no heartbeat e limpa na retomada', (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createStore(':memory:', 1000, 3);
+
+  const sub = store.submit({ participant: 'Equipe Casos', problem: 'A', source: 'int main(){}' });
+  assert.deepEqual(sub.testResults, []);
+  assert.equal(sub.lastRenewedAt, null);
+
+  now = 1100;
+  const first = store.claim('worker-1');
+  assert.deepEqual(store.get(sub.id).testResults, []);
+  assert.equal(store.get(sub.id).lastRenewedAt, null);
+
+  now = 1300;
+  const cases1 = [
+    { case: 1, status: 'passed', durationMs: 42 },
+    { case: 2, status: 'running', durationMs: null },
+  ];
+  assert.equal(store.renew(first.id, first.lease, {
+    phase: 'testing', testsCompleted: 1, testsTotal: 3, testResults: cases1,
+  }), true);
+  assert.deepEqual(store.get(sub.id).testResults, cases1);
+  assert.equal(store.get(sub.id).lastRenewedAt, 1300);
+
+  // Heartbeat puro atualiza lastRenewedAt sem apagar testResults
+  now = 1600;
+  assert.equal(store.renew(first.id, first.lease), true);
+  assert.deepEqual(store.get(sub.id).testResults, cases1);
+  assert.equal(store.get(sub.id).lastRenewedAt, 1600);
+
+  // Expiração zera visualização pública; retomada limpa no banco
+  now = 2700;
+  assert.deepEqual(store.get(sub.id).testResults, []);
+  assert.equal(store.get(sub.id).lastRenewedAt, null);
+
+  const second = store.claim('worker-2');
+  assert.deepEqual(store.get(sub.id).testResults, []);
+  assert.equal(store.get(sub.id).lastRenewedAt, null);
+
+  now = 2900;
+  const finalCases = [
+    { case: 1, status: 'passed', durationMs: 10 },
+    { case: 2, status: 'passed', durationMs: 12 },
+    { case: 3, status: 'passed', durationMs: 15 },
+  ];
+  assert.equal(store.renew(second.id, second.lease, {
+    phase: 'testing', testsCompleted: 3, testsTotal: 3, testResults: finalCases,
+  }), true);
+  assert.equal(store.finish(second.id, { lease: second.lease, status: 'accepted', detail: '3 casos aprovados' }), true);
+  assert.deepEqual(store.get(sub.id).testResults, finalCases);
+  assert.deepEqual(store.dashboard().recentResults[0].testResults, finalCases);
+});
+
+test('sqlite store tolera test_results corrompido no banco sem quebrar o dashboard', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'minijuiz-badjson-'));
+  const dbPath = join(dir, 'judge.sqlite');
+  t.after(() => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  const store = createStore(dbPath, 1000, 3);
+  const sub = store.submit({ participant: 'Corrompido', problem: 'A', source: 'int main(){}' });
+  const raw = new DatabaseSync(dbPath);
+  raw.prepare("UPDATE submissions SET test_results = '{invalido' WHERE id = ?").run(sub.id);
+  raw.close();
+
+  assert.deepEqual(store.get(sub.id).testResults, []);
+  assert.deepEqual(store.dashboard().submissions[0].testResults, []);
+});
