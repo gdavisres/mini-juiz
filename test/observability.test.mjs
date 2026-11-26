@@ -172,3 +172,26 @@ test('sqlite store tolera test_results corrompido no banco sem quebrar o dashboa
   assert.deepEqual(store.get(sub.id).testResults, []);
   assert.deepEqual(store.dashboard().submissions[0].testResults, []);
 });
+
+test('sqlite store limpa testResults e lastRenewedAt ao promover para dead_letter', (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createStore(':memory:', 1000, 1);
+
+  const sub = store.submit({ participant: 'DLQ', problem: 'A', source: 'int main(){}' });
+  const job = store.claim('worker-1');
+  now = 1200;
+  assert.equal(store.renew(job.id, job.lease, {
+    phase: 'testing', testsCompleted: 0, testsTotal: 3,
+    testResults: [{ case: 1, status: 'running', durationMs: null }],
+  }), true);
+
+  now = 2500;
+  const dash = store.dashboard();
+  assert.equal(dash.counts.deadLetter, 1);
+  const dead = store.get(sub.id);
+  assert.equal(dead.status, 'dead_letter');
+  assert.deepEqual(dead.testResults, []);
+  assert.equal(dead.lastRenewedAt, null);
+  assert.equal(dead.phase, null);
+});

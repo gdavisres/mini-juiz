@@ -116,7 +116,8 @@ export function createStore(path, leaseMs, maxAttempts = 3) {
     COUNT(CASE WHEN type = 'idempotent_replay' THEN 1 END) AS idempotentReplays
     FROM events`);
   const promoteDeadLetters = db.prepare(`UPDATE submissions SET
-    status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?
+    status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?,
+    phase = NULL, tests_completed = 0, test_results = NULL, last_renewed_at = NULL
     WHERE status = 'running' AND expires <= ? AND attempts >= ?
     RETURNING id, worker, lease, attempts`);
   const claim = db.prepare(`UPDATE submissions SET

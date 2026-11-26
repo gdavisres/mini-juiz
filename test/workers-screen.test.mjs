@@ -105,3 +105,11 @@ test('página /workers cumpre CSP estrita e contém landmarks de cluster e foco'
     assert.ok(html.includes(`id="${id}"`), `esperava #${id} em workers.html`);
   }
 });
+
+test('workers.js evita reconstruir DOM sem mudança de dados', async (t) => {
+  const { baseUrl } = await startTestServer(t);
+  const js = await (await fetch(`${baseUrl}/workers.js`)).text();
+  for (const cacheVar of ['previousSelector', 'previousQueue', 'previousWorkers', 'previousResults', 'previousEvents', 'previousFocus']) {
+    assert.ok(js.includes(cacheVar), `esperava cache de renderização ${cacheVar} em workers.js`);
+  }
+});

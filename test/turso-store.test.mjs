@@ -208,3 +208,26 @@ test('turso store tolera test_results corrompido no banco sem quebrar o dashboar
   assert.deepEqual((await store.get(sub.id)).testResults, []);
   assert.deepEqual((await store.dashboard()).submissions[0].testResults, []);
 });
+
+test('turso store limpa testResults e lastRenewedAt ao promover para dead_letter', async (t) => {
+  let now = 1000;
+  t.mock.method(Date, 'now', () => now);
+  const store = createTursoStore({ url: ':memory:', leaseMs: 1000, maxAttempts: 1 });
+
+  const sub = await store.submit({ participant: 'DLQ', problem: 'A', source: 'int main(){}' });
+  const job = await store.claim('worker-1');
+  now = 1200;
+  assert.equal(await store.renew(job.id, job.lease, {
+    phase: 'testing', testsCompleted: 0, testsTotal: 3,
+    testResults: [{ case: 1, status: 'running', durationMs: null }],
+  }), true);
+
+  now = 2500;
+  const dash = await store.dashboard();
+  assert.equal(dash.counts.deadLetter, 1);
+  const dead = await store.get(sub.id);
+  assert.equal(dead.status, 'dead_letter');
+  assert.deepEqual(dead.testResults, []);
+  assert.equal(dead.lastRenewedAt, null);
+  assert.equal(dead.phase, null);
+});

@@ -115,7 +115,8 @@ export function createTursoStore({ url, authToken, leaseMs, maxAttempts = 3 }) {
     const detail = `Limite de ${maxAttempts} tentativas atingido após expiração de reserva`;
     const res = await client.execute({
       sql: `UPDATE submissions SET
-        status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?
+        status = 'dead_letter', finished_at = ?, expires = NULL, detail = ?,
+        phase = NULL, tests_completed = 0, test_results = NULL, last_renewed_at = NULL
         WHERE status = 'running' AND expires <= ? AND attempts >= ?
         RETURNING id, worker, lease, attempts`,
       args: [now, detail, now, maxAttempts],

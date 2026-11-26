@@ -40,6 +40,12 @@ let selectedWorkerId = new URLSearchParams(window.location.search).get('id') || 
 let clockOffset = 0;
 let leaseMs = 10000;
 let lastDashboard = null;
+let previousSelector = '';
+let previousQueue = '';
+let previousWorkers = '';
+let previousResults = '';
+let previousEvents = '';
+let previousFocus = '';
 const lastRenewSeen = new Map();
 const pulseUntil = new Map();
 
@@ -121,6 +127,9 @@ function stepState(job, stepIndex) {
 }
 
 function renderSelector(workers) {
+  const key = JSON.stringify([selectedWorkerId, workers.map(({ id, status }) => [id, status])]);
+  if (key === previousSelector) return;
+  previousSelector = key;
   const container = byId('worker-selector');
   const allBtn = el('button', 'Todos os workers', 'selector-pill');
   allBtn.type = 'button';
@@ -163,6 +172,9 @@ function renderSummary(data) {
 
 function renderQueue(active, counts) {
   const queued = active.filter((item) => item.status === 'queued');
+  const key = JSON.stringify([counts.queued, queued.slice(0, 12)]);
+  if (key === previousQueue) return;
+  previousQueue = key;
   byId('queue-badge').textContent = String(counts.queued);
   const list = byId('queue-list');
   if (!queued.length) {
@@ -213,6 +225,15 @@ function createCasesChips(job) {
 }
 
 function renderWorkersGrid(workers, active, now) {
+  const runningJobs = active.filter((entry) => entry.status === 'running');
+  const key = JSON.stringify([
+    workers.map(({ id, status, lastSeen }) => [id, status, lastSeen]),
+    runningJobs.map(({ id, worker, problem, participant, attempts, phase, testsCompleted, testsTotal, testResults, expires, leasePrefix, lastRenewedAt }) => [
+      id, worker, problem, participant, attempts, phase, testsCompleted, testsTotal, testResults, expires, leasePrefix, lastRenewedAt,
+    ]),
+  ]);
+  if (key === previousWorkers) return;
+  previousWorkers = key;
   const connectedCount = workers.filter((w) => w.status !== 'offline').length;
   byId('workers-badge').textContent = `${connectedCount} conectado${connectedCount === 1 ? '' : 's'}`;
   const grid = byId('workers-grid');
@@ -283,7 +304,8 @@ function renderResultCard(job) {
   top.append(who, el('span', verdictLabels[job.status] ?? job.status, `verdict ${verdictCategory(job.status)}`));
   li.append(top);
   if (job.testResults?.length) {
-    li.append(createCasesChips(job));
+    const completed = job.testResults.filter((entry) => entry.status !== 'running');
+    if (completed.length) li.append(createCasesChips({ ...job, testResults: completed, testsTotal: completed.length }));
   }
   return li;
 }
@@ -309,18 +331,35 @@ function renderEventCard(ev) {
 
 function renderResultsAndEvents(data) {
   const recent = (data.recentResults ?? []).slice(0, 5);
-  const resultsList = byId('results-list');
-  resultsList.replaceChildren(...(recent.length ? recent.map(renderResultCard) : [el('li', 'Nenhum veredito concluído ainda.', 'empty')]));
+  const resKey = JSON.stringify(recent);
+  if (resKey !== previousResults) {
+    previousResults = resKey;
+    const resultsList = byId('results-list');
+    resultsList.replaceChildren(...(recent.length ? recent.map(renderResultCard) : [el('li', 'Nenhum veredito concluído ainda.', 'empty')]));
+  }
 
   const events = (data.events ?? []).slice(0, 12);
-  const eventsList = byId('events-list');
-  eventsList.replaceChildren(...(events.length ? events.map(renderEventCard) : [el('li', 'Nenhum evento registrado ainda.', 'empty')]));
+  const evKey = JSON.stringify(events);
+  if (evKey !== previousEvents) {
+    previousEvents = evKey;
+    const eventsList = byId('events-list');
+    eventsList.replaceChildren(...(events.length ? events.map(renderEventCard) : [el('li', 'Nenhum evento registrado ainda.', 'empty')]));
+  }
 }
 
 function renderFocusView(data, now) {
   const worker = data.workers.find((w) => w.id === selectedWorkerId);
   const active = data.activeSubmissions ?? [];
   const job = active.find((entry) => entry.worker === selectedWorkerId && entry.status === 'running');
+  const workerResults = (data.submissions ?? [])
+    .filter((sub) => sub.worker === selectedWorkerId && !['queued', 'running'].includes(sub.status))
+    .slice(0, 6);
+  const workerEvents = (data.events ?? [])
+    .filter((ev) => ev.worker === selectedWorkerId)
+    .slice(0, 15);
+  const focusKey = JSON.stringify([selectedWorkerId, worker ?? null, job ?? null, workerResults, workerEvents]);
+  if (focusKey === previousFocus) return;
+  previousFocus = focusKey;
 
   byId('focus-worker-name').textContent = selectedWorkerId;
   const status = worker?.status ?? 'offline';
@@ -385,16 +424,10 @@ function renderFocusView(data, now) {
     body.replaceChildren(el('div', hint, 'worker-idle-box'));
   }
 
-  const workerResults = (data.submissions ?? [])
-    .filter((sub) => sub.worker === selectedWorkerId && !['queued', 'running'].includes(sub.status))
-    .slice(0, 6);
   byId('focus-results').replaceChildren(
     ...(workerResults.length ? workerResults.map(renderResultCard) : [el('li', 'Nenhuma submissão concluída por este worker ainda.', 'empty')]),
   );
 
-  const workerEvents = (data.events ?? [])
-    .filter((ev) => ev.worker === selectedWorkerId)
-    .slice(0, 15);
   byId('focus-events').replaceChildren(
     ...(workerEvents.length ? workerEvents.map(renderEventCard) : [el('li', 'Nenhum evento registrado para este worker ainda.', 'empty')]),
   );

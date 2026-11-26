@@ -97,6 +97,17 @@ test('judge emite testResults caso-a-caso durante execução e ao falhar', async
   assert.equal(Number.isInteger(events[4].testResults[1].durationMs) && events[4].testResults[1].durationMs >= 0, true);
 });
 
+test('judge marca o caso como judge_error se runner.run lançar exceção', async () => {
+  const events = [];
+  const compile = async () => ({ code: 0, stdout: Buffer.from('executable') });
+  const run = async () => { throw new Error('docker crash'); };
+  const result = await judge(solution, { compile, run }, 'A', async (p) => events.push(p));
+  assert.equal(result.status, 'judge_error');
+  const last = events.at(-1);
+  assert.equal(last.testResults[0].status, 'judge_error');
+  assert.equal(last.testsCompleted, 1);
+});
+
 test('o runner Docker compila e executa código C++ em contêineres separados', { skip: !process.env.TEST_DOCKER }, async () => {
   assert.equal((await judge(solution)).status, 'accepted');
   assert.equal((await judge('int main() { for (;;) {} }')).status, 'time_limit');

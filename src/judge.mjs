@@ -71,7 +71,15 @@ export async function judge(source, runner = dockerRunner, problemId = 'A', onPr
       results.push({ case: index + 1, status: 'running', durationMs: null });
       await report('testing', index);
       const startedAt = performance.now();
-      const result = await runner.run(compiled.stdout, test.input, problem);
+      let result;
+      try {
+        result = await runner.run(compiled.stdout, test.input, problem);
+      } catch (error) {
+        const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
+        results[index] = { case: index + 1, status: 'judge_error', durationMs };
+        try { await report('testing', index + 1); } catch {}
+        throw error;
+      }
       const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
       const detail = `Caso ${index + 1} de ${cases.length}`;
       let caseStatus = 'passed';
