@@ -10,7 +10,7 @@ import { test } from 'node:test';
 test('a tarefa expirada é retomada e somente o dono atual pode concluir', async (t) => {
   const socketPath = process.platform === 'win32' ? `\\\\.\\pipe\\minijuiz-${process.pid}` : join(tmpdir(), `minijuiz-${process.pid}.sock`);
   const server = spawn(process.execPath, ['src/server.mjs'], {
-    env: { ...process.env, SOCKET_PATH: socketPath, DB_PATH: ':memory:', JUDGE_TOKEN: 'teste', LEASE_MS: '1200' },
+    env: { ...process.env, SOCKET_PATH: socketPath, DB_PATH: ':memory:', JUDGE_TOKEN: 'teste', LEASE_MS: '1200', MAX_ATTEMPTS: '4' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   t.after(async () => {
@@ -96,4 +96,16 @@ test('a tarefa expirada é retomada e somente o dono atual pode concluir', async
   assert.equal(publicResult.worker, standby.worker);
   assert.equal('lease' in publicResult, false);
   assert.equal('source' in publicResult, false);
+
+  const dash = (await request('/api/dashboard')).json();
+  assert.ok(dash.serverTime > 0);
+  assert.equal(dash.config.maxAttempts, 4);
+  assert.ok(dash.metrics.reclaims >= 1);
+  assert.ok(dash.metrics.staleRejections >= 2);
+  assert.ok(dash.metrics.idempotentReplays >= 1);
+  const types = new Set(dash.events.map((e) => e.type));
+  assert.ok(types.has('reclaimed') && types.has('stale_rejected') && types.has('idempotent_replay'));
+  for (const event of dash.events) {
+    if (event.leasePrefix) assert.ok(event.leasePrefix.length <= 8);
+  }
 });

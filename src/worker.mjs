@@ -6,6 +6,10 @@ import { judge, runnerImage } from './judge.mjs';
 const api = process.env.API_URL ?? 'http://127.0.0.1:3000';
 const token = process.env.JUDGE_TOKEN ?? 'minijuiz-local';
 const worker = process.env.WORKER_ID ?? `${hostname().replace(/[^\w.-]/g, '-')}-${process.pid}`;
+const simulateStaleMs = Number(process.env.SIMULATE_STALE_MS ?? 0);
+if (!Number.isSafeInteger(simulateStaleMs) || simulateStaleMs < 0) {
+  throw new Error('SIMULATE_STALE_MS inválido.');
+}
 
 async function post(path, data) {
   return fetch(new URL(`/internal/${path}`, api), {
@@ -43,6 +47,20 @@ async function processJob(job) {
         console.error('Envio do progresso:', error.message);
       }
     });
+    if (simulateStaleMs > 0) {
+      controller.abort();
+      await renewal;
+      console.log(`${job.id} · simulando atraso de rede (${simulateStaleMs} ms) para testar fencing token…`);
+      await delay(simulateStaleMs);
+      const response = await post(`${path}/finish`, { ...result, lease });
+      if (response.status === 409) {
+        console.log(`${job.id} · 409 · resultado atrasado rejeitado pela API (fencing token)`);
+        return;
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      console.log(`${job.id} · ${result.status}`);
+      return;
+    }
     for (let attempt = 0; attempt < 3 && !expired; attempt += 1) {
       try {
         const response = await post(`${path}/finish`, { ...result, lease });
