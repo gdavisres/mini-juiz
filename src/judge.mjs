@@ -56,22 +56,33 @@ export async function judge(source, runner = dockerRunner, problemId = 'A', onPr
     const problem = getProblem(problemId);
     const cases = getCases(problemId);
     if (!problem || !cases) return { status: 'judge_error' };
-    const report = (phase, testsCompleted) => onProgress({ phase, testsCompleted, testsTotal: cases.length });
+    const results = [];
+    const report = (phase, testsCompleted) => onProgress({
+      phase, testsCompleted, testsTotal: cases.length,
+      testResults: results.map((entry) => ({ ...entry })),
+    });
     await report('compiling', 0);
     const compiled = await runner.compile(source, problem);
     if (compiled.code === 125 || compiled.code === 126 || compiled.code === 127) return { status: 'judge_error' };
     if (compiled.code !== 0) return { status: 'compile_error', detail: compiled.stderr?.toString('utf8').slice(0, 1600) };
     if (!compiled.stdout.length) return { status: 'judge_error' };
 
-    await report('testing', 0);
     for (const [index, test] of cases.entries()) {
+      results.push({ case: index + 1, status: 'running', durationMs: null });
+      await report('testing', index);
+      const startedAt = performance.now();
       const result = await runner.run(compiled.stdout, test.input, problem);
-      await report('testing', index + 1);
+      const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
       const detail = `Caso ${index + 1} de ${cases.length}`;
-      if (result.code === 125 || result.code === 126 || result.code === 127) return { status: 'judge_error' };
-      if (result.code === 124 || result.code === 137) return { status: 'time_limit', detail };
-      if (result.code !== 0) return { status: 'runtime_error', detail };
-      if (result.stdout.toString('utf8').trim() !== test.expected) return { status: 'wrong_answer', detail };
+      let caseStatus = 'passed';
+      if (result.code === 125 || result.code === 126 || result.code === 127) caseStatus = 'judge_error';
+      else if (result.code === 124 || result.code === 137) caseStatus = 'time_limit';
+      else if (result.code !== 0) caseStatus = 'runtime_error';
+      else if (result.stdout.toString('utf8').trim() !== test.expected) caseStatus = 'wrong_answer';
+      results[index] = { case: index + 1, status: caseStatus, durationMs };
+      await report('testing', index + 1);
+      if (caseStatus === 'judge_error') return { status: 'judge_error' };
+      if (caseStatus !== 'passed') return { status: caseStatus, detail };
     }
     return { status: 'accepted', detail: `${cases.length} casos aprovados` };
   } catch (error) {
