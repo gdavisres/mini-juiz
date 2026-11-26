@@ -9,10 +9,12 @@ function getHandler() {
   const authToken = process.env.TURSO_AUTH_TOKEN;
   const token = process.env.JUDGE_TOKEN;
   const leaseMs = Number(process.env.LEASE_MS ?? 10000);
+  const maxAttempts = Number(process.env.MAX_ATTEMPTS ?? 3);
   if (!url) throw new Error('Variável TURSO_DATABASE_URL não configurada.');
   if (!token) throw new Error('Variável JUDGE_TOKEN não configurada.');
   if (!Number.isSafeInteger(leaseMs) || leaseMs < 1000) throw new Error('Variável LEASE_MS inválida.');
-  const store = createTursoStore({ url, authToken, leaseMs });
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1) throw new Error('Variável MAX_ATTEMPTS inválida.');
+  const store = createTursoStore({ url, authToken, leaseMs, maxAttempts });
   cachedHandler = createHandler({ store, token });
   return cachedHandler;
 }
